@@ -73,6 +73,23 @@ fn read_bytes_alot() {
 }
 
 #[test]
+fn write_then_read_bytes() {
+    let kernel = fake::Kernel::new();
+    let driver = fake::Console::new_with_input(b"rx-bytes");
+    kernel.add_driver(&driver);
+
+    Console::write(b"tx-bytes").unwrap();
+    assert_eq!(driver.take_bytes(), b"tx-bytes");
+
+    let mut buf = [0; 8];
+    let (count, res) = Console::read(&mut buf);
+
+    res.unwrap();
+    assert_eq!(count, 8);
+    assert_eq!(&buf, b"rx-bytes");
+}
+
+#[test]
 fn failed_print() {
     let kernel = fake::Kernel::new();
     let driver = fake::Console::new();

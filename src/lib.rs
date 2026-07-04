@@ -115,3 +115,9 @@ pub mod key_value {
     use libtock_key_value as key_value;
     pub type KeyValue = key_value::KeyValue<super::runtime::TockSyscalls>;
 }
+pub mod uart {
+    use libtock_uart as uart;
+    pub type Uart<const DRIVER_NUM: u32> = uart::Uart<super::runtime::TockSyscalls, DRIVER_NUM>;
+    pub type UartWriter<const DRIVER_NUM: u32> =
+        uart::UartWriter<super::runtime::TockSyscalls, DRIVER_NUM>;
+}

@@ -261,8 +261,10 @@ impl crate::fake::SyscallDriver for Ieee802154Phy {
                 command_return::success()
             }
             command::COMMIT_CFG => command_return::success(),
-            command::GET_SHORT_ADDR => command_return::success_u32(self.addr_short.get() as u32),
-            command::GET_PAN => command_return::success_u32(self.pan.get() as u32),
+            command::GET_SHORT_ADDR => {
+                command_return::success_u32(self.addr_short.get() as u32 + 1)
+            }
+            command::GET_PAN => command_return::success_u32(self.pan.get() as u32 + 1),
             command::GET_CHAN => command_return::success_u32(self.chan.get() as u32),
             command::GET_TX_PWR => command_return::success_u32(self.tx_power.get() as i32 as u32),
             command::SET_LONG_ADDR => {

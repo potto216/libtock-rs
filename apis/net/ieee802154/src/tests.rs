@@ -103,6 +103,16 @@ fn configure() {
     assert_eq!(Ieee802154::get_address_long().unwrap(), addr_long);
     assert_eq!(Ieee802154::get_channel().unwrap(), channel);
     assert_eq!(Ieee802154::get_tx_power().unwrap(), tx_power);
+
+    for pan in [0x0000, 0x0001, 0xcafe, 0xffff] {
+        Ieee802154::set_pan(pan);
+        assert_eq!(Ieee802154::get_pan().unwrap(), pan);
+    }
+
+    for address in [0x0000, 0x0001, 0xdead, 0xffff] {
+        Ieee802154::set_address_short(address);
+        assert_eq!(Ieee802154::get_address_short().unwrap(), address);
+    }
 }
 
 #[test]

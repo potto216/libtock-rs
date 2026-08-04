@@ -149,7 +149,7 @@ impl<S: Syscalls, C: Config> Ieee802154<S, C> {
         S::command(DRIVER_NUM, command::GET_PAN, 0, 0)
             .to_result::<u32, _>()
             // Driver adds 1 to make the value positive.
-            .map(|pan| pan as u16 - 1)
+            .map(|pan| (pan - 1) as u16)
     }
 
     #[inline(always)]

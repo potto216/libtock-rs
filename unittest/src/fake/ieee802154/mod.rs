@@ -289,7 +289,7 @@ impl crate::fake::SyscallDriver for Ieee802154Phy {
                 self.tx_buf.set(tx_buf);
                 self.transmitted_frames.set(transmitted_frames);
                 self.share_ref
-                    .schedule_upcall(subscribe::FRAME_TRANSMITTED, (2137, 0, 0))
+                    .schedule_upcall(subscribe::FRAME_TRANSMITTED, (0, 0, 0))
                     .expect("Unable to schedule upcall {}");
 
                 command_return::success()

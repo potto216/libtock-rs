@@ -90,8 +90,8 @@ impl<S: Syscalls, C: Config> Ieee802154<S, C> {
         let _ = S::command(
             DRIVER_NUM,
             command::SET_SHORT_ADDR,
-            // Driver expects 1 added to make the value positive.
-            short_addr as u32 + 1,
+            // Driver expects the value as-is.
+            short_addr as u32,
             0,
         );
     }
@@ -110,7 +110,7 @@ impl<S: Syscalls, C: Config> Ieee802154<S, C> {
         let _ = S::command(
             DRIVER_NUM,
             command::SET_PAN,
-            pan as u32 + 1, // Driver expects 1 added to make the value positive.
+            pan as u32, // Driver expects the value as-is.
             0,
         );
     }
@@ -136,7 +136,7 @@ impl<S: Syscalls, C: Config> Ieee802154<S, C> {
         S::command(DRIVER_NUM, command::GET_SHORT_ADDR, 0, 0)
             .to_result::<u32, _>()
             // Driver adds 1 to make the value positive.
-            .map(|addr| addr as u16 - 1)
+            .map(|addr| (addr - 1) as u16)
     }
 
     #[inline(always)]
@@ -149,7 +149,7 @@ impl<S: Syscalls, C: Config> Ieee802154<S, C> {
         S::command(DRIVER_NUM, command::GET_PAN, 0, 0)
             .to_result::<u32, _>()
             // Driver adds 1 to make the value positive.
-            .map(|pan| pan as u16 - 1)
+            .map(|pan| (pan - 1) as u16)
     }
 
     #[inline(always)]
@@ -192,8 +192,11 @@ impl<S: Syscalls, C: Config> Ieee802154<S, C> {
 
             loop {
                 S::yield_wait();
-                if called.get().is_some() {
-                    return Ok(());
+                if let Some((status,)) = called.get() {
+                    return match status {
+                        0 => Ok(()),
+                        error => Err(error.try_into().unwrap_or(ErrorCode::Fail)),
+                    };
                 }
             }
         })

@@ -67,12 +67,16 @@ fn frame_version_name(frame_version: u8) -> &'static str {
     }
 }
 
+/// Reads a little-endian `u16` at `offset`, advancing the offset on success.
 fn read_u16(bytes: &[u8], offset: &mut usize) -> Option<u16> {
     let value = bytes.get(*offset..*offset + 2)?;
     *offset += 2;
     Some(u16::from_le_bytes([value[0], value[1]]))
 }
 
+/// Decodes and prints an address, advancing `offset` past the address bytes.
+///
+/// Returns an error if the address mode is unsupported or the address is truncated.
 fn print_address(
     label: &str,
     address_mode: u8,
@@ -104,6 +108,7 @@ fn print_address(
     }
 }
 
+/// Prints a payload in hexadecimal and, when valid, as UTF-8 text.
 fn print_payload(payload: &[u8]) {
     write!(Console::writer(), "Payload ({} bytes) hex: ", payload.len()).unwrap();
     for byte in payload {
@@ -118,6 +123,7 @@ fn print_payload(payload: &[u8]) {
     }
 }
 
+/// Decodes and prints the supported fields of an IEEE 802.15.4 frame.
 fn print_frame(frame: &[u8]) {
     if frame.len() < 2 {
         writeln!(

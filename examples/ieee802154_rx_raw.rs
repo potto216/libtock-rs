@@ -21,35 +21,49 @@ set_main! {main}
 stack_size! {0x600}
 
 const FRAME_TYPE_DATA: u8 = 1;
+const ADDRESS_MODE_NONE: u8 = 0;
+const ADDRESS_MODE_RESERVED: u8 = 1;
+const ADDRESS_MODE_SHORT: u8 = 2;
+const ADDRESS_MODE_EXTENDED: u8 = 3;
+const FRAME_VERSION_IEEE_802154_2003: u8 = 0;
+const FRAME_VERSION_IEEE_802154_2006: u8 = 1;
+const FRAME_VERSION_IEEE_802154: u8 = 2;
+const FRAME_VERSION_RESERVED: u8 = 3;
 
+// Ref: Section 7.2.2.2 Frame Type field (IEEE 802.15.4-2020)
 fn frame_type_name(frame_type: u8) -> &'static str {
     match frame_type {
         0 => "Beacon",
         FRAME_TYPE_DATA => "Data",
         2 => "Acknowledgment",
         3 => "MAC command",
+        4 => "Reserved",
         5 => "Multipurpose",
         6 => "Fragment",
         7 => "Extended",
-        _ => "Reserved",
+        _ => "Unknown",
     }
 }
 
+// Ref: Table 7-3 Destination Addressing Mode and Source Addressing Mode (IEEE 802.15.4-2020)
 fn address_mode_name(address_mode: u8) -> &'static str {
     match address_mode {
-        0 => "None",
-        2 => "Short",
-        3 => "Extended",
-        _ => "Reserved",
+        ADDRESS_MODE_NONE => "None",
+        ADDRESS_MODE_RESERVED => "Reserved",
+        ADDRESS_MODE_SHORT => "Short",
+        ADDRESS_MODE_EXTENDED => "Extended",
+        _ => "Unknown",
     }
 }
 
+// Ref: Table 7-4 Frame Version field (IEEE 802.15.4-2020)
 fn frame_version_name(frame_version: u8) -> &'static str {
     match frame_version {
-        0 => "IEEE 802.15.4-2003",
-        1 => "IEEE 802.15.4-2006",
-        2 => "IEEE 802.15.4",
-        _ => "Reserved",
+        FRAME_VERSION_IEEE_802154_2003 => "IEEE 802.15.4-2003",
+        FRAME_VERSION_IEEE_802154_2006 => "IEEE 802.15.4-2006",
+        FRAME_VERSION_IEEE_802154 => "IEEE 802.15.4",
+        FRAME_VERSION_RESERVED => "Reserved",
+        _ => "Unknown",
     }
 }
 
@@ -59,19 +73,24 @@ fn read_u16(bytes: &[u8], offset: &mut usize) -> Option<u16> {
     Some(u16::from_le_bytes([value[0], value[1]]))
 }
 
-fn print_address(label: &str, address_mode: u8, bytes: &[u8], offset: &mut usize) -> bool {
+fn print_address(
+    label: &str,
+    address_mode: u8,
+    bytes: &[u8],
+    offset: &mut usize,
+) -> Result<(), ()> {
     match address_mode {
-        0 => true,
-        2 => {
+        ADDRESS_MODE_NONE => Ok(()),
+        ADDRESS_MODE_SHORT => {
             let Some(address) = read_u16(bytes, offset) else {
-                return false;
+                return Err(());
             };
             writeln!(Console::writer(), "{label} address: {address:#06x}").unwrap();
-            true
+            Ok(())
         }
-        3 => {
+        ADDRESS_MODE_EXTENDED => {
             let Some(address) = bytes.get(*offset..*offset + 8) else {
-                return false;
+                return Err(());
             };
             *offset += 8;
             let address = u64::from_le_bytes([
@@ -79,9 +98,9 @@ fn print_address(label: &str, address_mode: u8, bytes: &[u8], offset: &mut usize
                 address[7],
             ]);
             writeln!(Console::writer(), "{label} address: {address:#018x}").unwrap();
-            true
+            Ok(())
         }
-        _ => false,
+        _ => Err(()),
     }
 }
 
@@ -100,21 +119,22 @@ fn print_payload(payload: &[u8]) {
 }
 
 fn print_frame(frame: &[u8]) {
-    if frame.len() < 3 {
+    if frame.len() < 2 {
         writeln!(
             Console::writer(),
-            "Malformed frame: expected at least a 3-byte MAC header\n"
+            "Malformed frame: expected at least a 2-byte frame control field"
         )
         .unwrap();
         return;
     }
-
+    // Ref: Section 7.2.2 MAC Frame Format (IEEE 802.15.4-2020)
     let frame_control = u16::from_le_bytes([frame[0], frame[1]]);
     let frame_type = (frame_control & 0x0007) as u8;
     let security_enabled = frame_control & 0x0008 != 0;
     let frame_pending = frame_control & 0x0010 != 0;
     let acknowledgment_requested = frame_control & 0x0020 != 0;
     let pan_id_compression = frame_control & 0x0040 != 0;
+    // Bit 7 is reserved and should be set to 0
     let sequence_number_suppressed = frame_control & 0x0100 != 0;
     let information_elements_present = frame_control & 0x0200 != 0;
     let destination_address_mode = ((frame_control >> 10) & 0x0003) as u8;
@@ -169,25 +189,36 @@ fn print_frame(frame: &[u8]) {
     )
     .unwrap();
 
-    // The transmitter uses the IEEE 802.15.4-2006 header format, in which the
-    // sequence number is always present and PAN ID compression means that the
-    // source PAN ID is the same as the destination PAN ID.
-    if frame_version > 1 {
+    if frame_version > FRAME_VERSION_IEEE_802154 {
         writeln!(
             Console::writer(),
-            "Address decoding for this frame version is not supported\n"
+            "Address decoding for this frame version is not supported"
         )
         .unwrap();
         return;
     }
 
-    let sequence_number = frame[2];
-    let mut offset = 3;
-    writeln!(Console::writer(), "Sequence number: {sequence_number}").unwrap();
+    let mut offset = 2;
+    let sequence_number = if sequence_number_suppressed {
+        None
+    } else {
+        let Some(sequence_number) = frame.get(offset).copied() else {
+            writeln!(Console::writer(), "Malformed sequence number").unwrap();
+            return;
+        };
+        offset += 1;
+        Some(sequence_number)
+    };
 
-    let destination_pan = if destination_address_mode != 0 {
+    if let Some(sequence_number) = sequence_number {
+        writeln!(Console::writer(), "Sequence number: {sequence_number}").unwrap();
+    } else {
+        writeln!(Console::writer(), "Sequence number: suppressed").unwrap();
+    }
+
+    let destination_pan = if destination_address_mode != ADDRESS_MODE_NONE {
         let Some(pan) = read_u16(frame, &mut offset) else {
-            writeln!(Console::writer(), "Malformed destination PAN ID\n").unwrap();
+            writeln!(Console::writer(), "Malformed destination PAN ID").unwrap();
             return;
         };
         writeln!(Console::writer(), "Destination PAN ID: {pan:#06x}").unwrap();
@@ -196,34 +227,34 @@ fn print_frame(frame: &[u8]) {
         None
     };
 
-    if !print_address("Destination", destination_address_mode, frame, &mut offset) {
-        writeln!(Console::writer(), "Malformed destination address\n").unwrap();
+    if print_address("Destination", destination_address_mode, frame, &mut offset).is_err() {
+        writeln!(Console::writer(), "Malformed destination address").unwrap();
         return;
     }
 
-    if source_address_mode != 0 {
+    if source_address_mode != ADDRESS_MODE_NONE {
         if pan_id_compression {
             if let Some(pan) = destination_pan {
                 writeln!(Console::writer(), "Source PAN ID: {pan:#06x} (compressed)").unwrap();
             } else {
                 writeln!(
                     Console::writer(),
-                    "Malformed header: compressed source PAN ID has no destination PAN ID\n"
+                    "Malformed header: compressed source PAN ID has no destination PAN ID"
                 )
                 .unwrap();
                 return;
             }
         } else {
             let Some(pan) = read_u16(frame, &mut offset) else {
-                writeln!(Console::writer(), "Malformed source PAN ID\n").unwrap();
+                writeln!(Console::writer(), "Malformed source PAN ID").unwrap();
                 return;
             };
             writeln!(Console::writer(), "Source PAN ID: {pan:#06x}").unwrap();
         }
     }
 
-    if !print_address("Source", source_address_mode, frame, &mut offset) {
-        writeln!(Console::writer(), "Malformed source address\n").unwrap();
+    if print_address("Source", source_address_mode, frame, &mut offset).is_err() {
+        writeln!(Console::writer(), "Malformed source address").unwrap();
         return;
     }
 
@@ -233,15 +264,13 @@ fn print_frame(frame: &[u8]) {
         if security_enabled || information_elements_present {
             writeln!(
                 Console::writer(),
-                "Payload decoding for secured frames or frames with information elements is not supported\n"
+                "Payload decoding for secured frames or frames with information elements is not supported"
             )
             .unwrap();
             return;
         }
         print_payload(&frame[offset..]);
     }
-
-    writeln!(Console::writer()).unwrap();
 }
 
 fn main() {
@@ -252,35 +281,31 @@ fn main() {
     let tx_power: i8 = 4;
     let channel: u8 = 11;
 
-    writeln!(Console::writer(), "Configuring IEEE 802.15.4 radio...\n").unwrap();
+    writeln!(Console::writer(), "Configuring IEEE 802.15.4 radio...").unwrap();
 
     Ieee802154::set_pan(pan);
-    writeln!(Console::writer(), "Set PAN to {pan:#06x}\n").unwrap();
+    writeln!(Console::writer(), "Set PAN to {pan:#06x}").unwrap();
 
     Ieee802154::set_address_short(addr_short);
-    writeln!(
-        Console::writer(),
-        "Set short address to {addr_short:#06x}\n"
-    )
-    .unwrap();
+    writeln!(Console::writer(), "Set short address to {addr_short:#06x}").unwrap();
 
     Ieee802154::set_address_long(addr_long);
-    writeln!(Console::writer(), "Set long address to {addr_long:#018x}\n").unwrap();
+    writeln!(Console::writer(), "Set long address to {addr_long:#018x}").unwrap();
 
     Ieee802154::set_tx_power(tx_power).unwrap();
-    writeln!(Console::writer(), "Set TX power to {tx_power}\n").unwrap();
+    writeln!(Console::writer(), "Set TX power to {tx_power}").unwrap();
 
     Ieee802154::set_channel(channel).unwrap();
-    writeln!(Console::writer(), "Set channel to {channel}\n").unwrap();
+    writeln!(Console::writer(), "Set channel to {channel}").unwrap();
 
     // Don't forget to commit the config!
     Ieee802154::commit_config();
-    writeln!(Console::writer(), "Committed radio configuration!\n").unwrap();
+    writeln!(Console::writer(), "Committed radio configuration!").unwrap();
 
     // Turn the radio on
     Ieee802154::radio_on().unwrap();
     assert!(Ieee802154::is_on());
-    writeln!(Console::writer(), "Radio is on!\n").unwrap();
+    writeln!(Console::writer(), "Radio is on!").unwrap();
 
     let mut buf = RxRingBuffer::<2>::new();
     let mut operator = RxSingleBufferOperator::new(&mut buf);
@@ -290,5 +315,6 @@ fn main() {
 
         writeln!(Console::writer(), "Received frame ({frame_len} bytes)").unwrap();
         print_frame(&frame.body[..frame_len]);
+        writeln!(Console::writer()).unwrap(); // Print a newline to separate frames
     }
 }
